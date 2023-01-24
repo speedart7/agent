@@ -231,3 +231,49 @@ func TestGetRemoteConfig_ValidRemoteConfig(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, c.didCacheRemoteConfig)
 }
+
+func TestGetRemoteConfig_InvalidRemoteConfig(t *testing.T) {
+	// this is invalid because it has two scrape_configs with
+	// the same job_name
+	invalidConfig := `
+metrics:
+    configs:
+    - name: Metrics Snippets
+      scrape_configs:
+      - job_name: agent-metrics
+        honor_timestamps: true
+        scrape_interval: 15s
+        metrics_path: /metrics
+        scheme: http
+        follow_redirects: true
+        enable_http2: true
+        static_configs:
+        - targets:
+          - localhost:12345
+      - job_name: agent-metrics
+        honor_timestamps: true
+        scrape_interval: 15s
+        metrics_path: /metrics
+        scheme: http
+        follow_redirects: true
+        enable_http2: true
+        static_configs:
+        - targets:
+          - localhost:12345`
+	invalidCfgBytes := []byte(invalidConfig)
+
+	logger := server.NewLogger(&server.DefaultConfig)
+	f := testFetcher{config: &validConfig}
+	c := testCache{}
+
+	f.fetchedConfigBytesToReturn = invalidCfgBytes
+	c.cachedConfigToReturn = &DefaultConfig
+
+	rc := &RemoteConfigProvider{fetcher: &f, cache: &c}
+	cfg, err := rc.GetRemoteConfig(true, logger)
+	assert.NoError(t, err)
+	assert.False(t, c.didCacheRemoteConfig)
+
+	// check that the returned config is the cached one
+	assert.True(t, util.CompareYAML(*cfg, DefaultConfig))
+}
