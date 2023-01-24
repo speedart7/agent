@@ -68,7 +68,7 @@ type Config struct {
 	Integrations    VersionedIntegrations `yaml:"integrations,omitempty"`
 	Traces          traces.Config         `yaml:"traces,omitempty"`
 	Logs            *logs.Config          `yaml:"logs,omitempty"`
-	AgentManagement AgentManagement       `yaml:"agent_management,omitempty"`
+	AgentManagement AgentManagementConfig `yaml:"agent_management,omitempty"`
 
 	// Flag-only fields
 	ServerFlags server.Flags `yaml:"-"`
@@ -241,13 +241,13 @@ func LoadFile(filename string, expandEnvVars bool, c *Config) error {
 	return LoadBytes(buf, expandEnvVars, c)
 }
 
-// loadFromAgentManagementAPI loads and merges a config from an Agent Management API.
+// LoadFromAgentManagementAPI loads and merges a config from an Agent Management API.
 //  1. Read local initial config.
 //  2. Get the remote config.
 //     a) Fetch from remote. If this fails or is invalid:
 //     b) Read the remote config from cache. If this fails, return an error.
 //  4. Merge the initial and remote config into c.
-func loadFromAgentManagementAPI(path string, expandEnvVars bool, c *Config, log *server.Logger) error {
+func LoadFromAgentManagementAPI(path string, expandEnvVars bool, c *Config, log *server.Logger) error {
 	// Load the initial config from disk without instrumenting the config hash
 	buf, err := os.ReadFile(path)
 	if err != nil {
@@ -259,11 +259,11 @@ func loadFromAgentManagementAPI(path string, expandEnvVars bool, c *Config, log 
 		return fmt.Errorf("failed to load initial config: %w", err)
 	}
 
-	configProvider, err := newRemoteConfigProvider(c)
+	configProvider, err := NewRemoteConfigProvider(c.AgentManagement)
 	if err != nil {
 		return err
 	}
-	remoteConfig, err := getRemoteConfig(expandEnvVars, configProvider, log)
+	remoteConfig, err := configProvider.GetRemoteConfig(expandEnvVars, log)
 	if err != nil {
 		return err
 	}
@@ -394,7 +394,7 @@ func Load(fs *flag.FlagSet, args []string, log *server.Logger) (*Config, error) 
 				return LoadRemote(path, expandArgs, c)
 			}
 			if features.Enabled(fs, featAgentManagement) {
-				return loadFromAgentManagementAPI(path, expandArgs, c, log)
+				return LoadFromAgentManagementAPI(path, expandArgs, c, log)
 			}
 			return LoadFile(path, expandArgs, c)
 		case fileTypeDynamic:
@@ -465,7 +465,7 @@ func load(fs *flag.FlagSet, args []string, loader loaderFunc) (*Config, error) {
 	}
 
 	// Complete unmarshaling integrations using the version from the flag. This
-	// MUST be called before ApplyDefaults.
+	// MUST be called before Validate/ApplyDefaults.
 	version := integrationsVersion1
 	if features.Enabled(fs, featIntegrationsNext) {
 		version = integrationsVersion2
